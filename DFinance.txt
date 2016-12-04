@@ -1,0 +1,705 @@
+contract DApple {
+
+    string public name;
+
+    string public symbol;
+
+    uint8 public decimals;
+
+
+    address public theDAppleMaker;
+    address public theDAppleDExchange;
+    bool private theDAppleMakerSet;
+    bool private theDAppleDExchangeSet;
+
+    mapping (address => uint256) public balanceOf;
+
+    event Transfer(address from, address to, uint256 amount100ths);
+
+
+    modifier onlyDAppleMaker {
+
+
+        if (msg.sender != theDAppleMaker) throw;
+
+        _
+    }
+
+    modifier onlyDAppleMakerOrDAppleDExchange {
+
+
+        if (msg.sender != theDAppleMaker && msg.sender != theDAppleDExchange) throw;
+
+        _
+    }
+
+    function DApple() {
+
+
+
+        name = "DApple";
+        symbol = "D.AAPL";
+
+        decimals = 2;
+
+
+        theDAppleMakerSet = false;
+        theDAppleDExchangeSet = false;
+    }
+
+
+    function setDAppleMaker(address _DAppleMaker) {
+
+
+
+        if (theDAppleMakerSet) throw;
+
+        theDAppleMaker = _DAppleMaker;
+        theDAppleMakerSet = true;
+    }
+
+    function setDAppleDExchange(address _DAppleDExchange) {
+
+
+
+        if (theDAppleDExchangeSet) throw;
+
+        theDAppleDExchange = _DAppleDExchange;
+        theDAppleDExchangeSet = true;
+    }
+
+    function transfer(address _to, uint256 _amount100ths) {
+
+
+        if (_amount100ths <= 0) throw;
+        if (balanceOf[msg.sender] < _amount100ths) throw;
+
+        balanceOf[msg.sender] -= _amount100ths;
+        balanceOf[_to] += _amount100ths;
+        
+        Transfer(msg.sender, _to, _amount100ths);
+
+    }
+
+
+    function transferFrom(address _from, uint256 _amount100ths) onlyDAppleMakerOrDAppleDExchange {
+
+
+        if (_amount100ths <= 0) throw;
+        if (balanceOf[_from] < _amount100ths) throw;
+
+        balanceOf[_from] -= _amount100ths;
+        balanceOf[msg.sender] += _amount100ths;
+        
+        Transfer(_from, msg.sender, _amount100ths);
+
+    }
+
+    function createDApples(uint256 _amount100ths) onlyDAppleMaker {
+
+        if (_amount100ths <= 0) throw;
+
+        balanceOf[msg.sender] += _amount100ths;
+
+        Transfer(0, msg.sender, _amount100ths);
+
+    }
+
+
+}
+
+contract DAppleMaker {
+
+    BuyTransaction[] public buyTransactions;
+    SellTransaction[] public sellTransactions;
+    uint256 public buyTransactionCount;
+    uint256 public sellTransactionCount;
+
+    address private theOwner;
+    DApple public theDApple;
+    string public latestQuote;
+
+    struct BuyTransaction {
+
+        address from;
+
+        uint256 amountWei;
+
+        bool pending;
+
+    }
+
+    struct SellTransaction {
+
+        address from;
+
+        uint256 amountDApples100ths;
+
+        bool pending;
+
+    }
+
+    modifier onlyOwner {
+
+
+        if (msg.sender != theOwner) throw;
+
+        _
+    }
+
+    function DAppleMaker(address _DApple) {
+
+        theOwner = msg.sender;
+        theDApple = DApple(_DApple);
+    }
+
+
+    function() {
+
+        buyDApples();
+    }
+
+    function buyDApples() {
+
+        uint256 amountWei = msg.value;
+
+        if (amountWei <= 0) throw;
+
+
+        BuyTransaction buyTransaction = buyTransactions[buyTransactions.length++];
+        buyTransaction.from = msg.sender;
+        buyTransaction.amountWei = amountWei;
+        buyTransaction.pending = true;
+        buyTransactionCount = buyTransactions.length;
+    }
+
+    function sellDApples(uint256 _amountDApples100ths) {
+
+        if (_amountDApples100ths <= 0) throw;
+
+
+        theDApple.transferFrom(msg.sender, _amountDApples100ths);
+
+        SellTransaction sellTransaction = sellTransactions[sellTransactions.length++];
+        sellTransaction.from = msg.sender;
+        sellTransaction.amountDApples100ths = _amountDApples100ths;
+        sellTransaction.pending = true;
+        sellTransactionCount = sellTransactions.length;
+    }
+
+    function transferDApples(uint256 _buyTransactionIndex, uint256 _amountDApples100ths) onlyOwner {
+
+        BuyTransaction buyTransaction = buyTransactions[_buyTransactionIndex];
+
+        if (!buyTransaction.pending) throw;
+
+        theDApple.createDApples(_amountDApples100ths);
+        theDApple.transfer(buyTransaction.from, _amountDApples100ths);
+
+        buyTransaction.pending = false;
+    }
+
+    function transferWei(uint256 _sellTransactionIndex, uint256 _amountWei) onlyOwner {
+
+        SellTransaction sellTransaction = sellTransactions[_sellTransactionIndex];
+
+        if (!sellTransaction.pending) throw;
+
+        theDApple.transfer(0, sellTransaction.amountDApples100ths);
+        sellTransaction.from.send(_amountWei);
+
+        sellTransaction.pending = false;
+    }
+
+    function setLatestQuote(string _latestQuote) onlyOwner {
+
+        latestQuote = _latestQuote;
+    }
+}
+
+contract DAppleDExchange {
+
+    BuyOrder[] public buyOrders;
+    SellOrder[] public sellOrders;
+
+    DApple public theDApple;
+
+    enum Status {
+
+        CANCELLED,
+        OPEN,
+        FILLED
+    }
+
+    struct BuyOrder {
+
+        address from;
+
+        uint256 amountDApples100ths;
+        uint256 bidWei;
+
+        Status status;
+
+    }
+
+    struct SellOrder {
+
+        address from;
+
+        uint256 amountDApples100ths;
+
+        uint256 askWei;
+
+        Status status;
+
+    }
+
+    function DAppleDExchange(address _DApple) {
+
+        theDApple = DApple(_DApple);
+    }
+
+
+    function buyDApples(uint256 _amountDApples100ths, uint256 _bidWei) {
+
+        if (_amountDApples100ths <= 0) throw;
+        if (_bidWei < 0) throw;
+        if (msg.value < _amountDApples100ths*_bidWei) throw;
+
+        uint256 refund = msg.value-(_amountDApples100ths*_bidWei);
+        if (refund > 0 ) {
+            msg.sender.send(refund); 
+        }
+
+        for(uint i=0; i<sellOrders.length; i++) {
+
+            if (sellOrders[i].status == Status.OPEN) {
+
+                if (_bidWei >= sellOrders[i].askWei) {
+
+                    if (_amountDApples100ths <= sellOrders[i].amountDApples100ths) {
+
+                        fillBuyOrder(_amountDApples100ths, _bidWei, i);
+                        return;
+                    } else {
+
+                        _amountDApples100ths -= sellOrders[i].amountDApples100ths;
+                        fillBuyOrder(sellOrders[i].amountDApples100ths, _bidWei, i);
+                    }
+                }
+            }
+        }
+
+        addBuyOrder(_amountDApples100ths, _bidWei);
+    }
+
+    function addBuyOrder(uint256 _amountDApples100ths, uint256 _bidWei) private {
+
+        BuyOrder buyOrder = buyOrders[buyOrders.length++];
+        buyOrder.from = msg.sender;
+        buyOrder.amountDApples100ths = _amountDApples100ths;
+        buyOrder.bidWei = _bidWei;
+        buyOrder.status = Status.OPEN;
+    }
+
+    function fillBuyOrder(uint256 _amountDApples100ths, uint256 _price, uint256 _sellOrderIndex) private {
+
+        SellOrder sellOrder = sellOrders[_sellOrderIndex];
+        theDApple.transfer(msg.sender, _amountDApples100ths);
+        sellOrder.from.send(_amountDApples100ths * _price);
+        sellOrder.amountDApples100ths -= _amountDApples100ths;
+        if (sellOrder.amountDApples100ths == 0) {
+            sellOrder.status = Status.FILLED;
+        }
+    }
+
+    function sellDApples(uint256 _amountDApples100ths, uint256 _askWei) {
+
+        if (_amountDApples100ths <= 0) throw;
+        if (_askWei < 0) throw;
+
+        theDApple.transferFrom(msg.sender, _amountDApples100ths);
+
+        for(uint i=0; i<buyOrders.length; i++) {
+
+            if (buyOrders[i].status == Status.OPEN) {
+
+                if (_askWei <= buyOrders[i].bidWei) {
+
+                    if (_amountDApples100ths <= buyOrders[i].amountDApples100ths) {
+
+                        fillSellOrder(_amountDApples100ths, _askWei, i);
+                        return;
+                    } else {
+
+                        _amountDApples100ths -= buyOrders[i].amountDApples100ths;
+                        fillSellOrder(buyOrders[i].amountDApples100ths, _askWei, i);
+                    }
+                }
+            }
+        }
+
+        addSellOrder(_amountDApples100ths, _askWei);
+    }
+
+    function addSellOrder(uint256 _amountDApples100ths, uint256 _askWei) private {
+
+        SellOrder sellOrder = sellOrders[sellOrders.length++];
+        sellOrder.from = msg.sender;
+        sellOrder.amountDApples100ths = _amountDApples100ths;
+        sellOrder.askWei = _askWei;
+        sellOrder.status = Status.OPEN;
+    }
+
+    function fillSellOrder(uint256 _amountDApples100ths, uint256 _price, uint _buyOrderIndex) private {
+
+        BuyOrder buyOrder = buyOrders[_buyOrderIndex];
+        msg.sender.send(_amountDApples100ths * _price);
+        uint256 refund = (_amountDApples100ths*buyOrder.bidWei)-(_amountDApples100ths*_price);
+        if (refund > 0 ) {
+            buyOrder.from.send(refund); 
+        }
+        theDApple.transfer(buyOrder.from, _amountDApples100ths);
+        buyOrder.amountDApples100ths -= _amountDApples100ths;
+        if (buyOrder.amountDApples100ths == 0) {
+            buyOrder.status = Status.FILLED;
+        }
+    }
+
+    function cancelBuyOrder(uint256 _buyOrderIndex) {
+
+        BuyOrder buyOrder = buyOrders[_buyOrderIndex];
+
+        if (msg.sender != buyOrder.from) throw;
+        if (buyOrder.status != Status.OPEN) throw;
+
+        buyOrder.from.send(buyOrder.amountDApples100ths*buyOrder.bidWei);
+        buyOrder.status = Status.CANCELLED;
+    }
+
+    function cancelAllBuyOrders() {
+
+        for(uint i=0; i<buyOrders.length; i++) {
+
+            if (msg.sender == buyOrders[i].from && buyOrders[i].status == Status.OPEN) {
+
+                cancelBuyOrder(i);
+            }
+        }
+    }
+
+    function cancelSellOrder(uint256 _sellOrderIndex) {
+
+        SellOrder sellOrder = sellOrders[_sellOrderIndex];
+
+        if (msg.sender != sellOrder.from) throw;
+        if (sellOrder.status != Status.OPEN) throw;
+
+        theDApple.transfer(sellOrder.from, sellOrder.amountDApples100ths);
+        sellOrder.status = Status.CANCELLED;
+    }
+
+    function cancelAllSellOrders() {
+
+        for(uint i=0; i<sellOrders.length; i++) {
+
+            if (msg.sender == sellOrders[i].from && sellOrders[i].status == Status.OPEN) {
+
+                cancelSellOrder(i);
+            }
+        }
+    }
+
+    function cancelAllOrders() {
+
+        cancelAllBuyOrders();
+        cancelAllSellOrders();
+    }
+}
+
+
+startGeth:
+----------
+geth --testnet
+
+startDAppleTrader:
+------------------
+#!/bin/bash
+lastBlockNumber=0
+while true
+do
+    currentBlockNumber=$(geth --testnet --exec 'eth.blockNumber' attach)
+    if [ "$currentBlockNumber" -gt "$lastBlockNumber" ]; then
+        ETHinBTC=$(curl -sS https://api.livecoin.net/exchange/ticker?currencyPair=ETH/BTC | jq '.last | tonumber')
+        BTCinUSD=$(curl -sS https://api.livecoin.net/exchange/ticker?currencyPair=BTC/USD | jq '.last | tonumber')
+        ETHinUSD=$(echo $ETHinBTC*$BTCinUSD | bc -l)
+        AAPLinUSD=$(curl -sS "http://query.yahooapis.com/v1/public/yql?q=select%20LastTradePriceOnly%20from%20yahoo.finance.quotes%20where%20symbol%20in%20%28%22AAPL%22
+%29&env=store://datatables.org/alltableswithkeys&format=json" | jq '.query.results.quote.LastTradePriceOnly | tonumber')
+        geth --testnet --exec 'var ETHinUSD='${ETHinUSD}';var AAPLinUSD='${AAPLinUSD}';loadScript("DAppleTrader.js")' attach
+        lastBlockNumber=$currentBlockNumber
+    fi
+    sleep 1
+done
+
+DAppleTrader.js:
+----------------
+eth.defaultAccount = '0xf8d768161ba848eb63e2289e7d20eaeaff22561b';
+personal.unlockAccount(eth.defaultAccount, "D@ppleMakerOwner99")
+
+var abi = [
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "name": "_buyTransactionIndex",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      },
+      {
+        "name": "_amountDApples100ths",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      }
+    ],
+    "name": "transferDApples",
+    "outputs": [],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      }
+    ],
+    "name": "buyTransactions",
+    "outputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "value": "0x"
+      },
+      {
+        "name": "amountWei",
+        "type": "uint256",
+        "value": "0"
+      },
+      {
+        "name": "pending",
+        "type": "bool",
+        "value": false
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "name": "_latestQuote",
+        "type": "string",
+        "typeShort": "string",
+        "bits": "",
+        "template": "elements_input_string"
+      }
+    ],
+    "name": "setLatestQuote",
+    "outputs": [],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "sellTransactionCount",
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "value": "0"
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "buyTransactionCount",
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "value": "0"
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "latestQuote",
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "value": ""
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [],
+    "name": "buyDApples",
+    "outputs": [],
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "name": "_amountDApples100ths",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      }
+    ],
+    "name": "sellDApples",
+    "outputs": [],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "theDApple",
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "value": "0xbfd497a19fc2f8b4c7cc2e19932b560485471996"
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      }
+    ],
+    "name": "sellTransactions",
+    "outputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "value": "0x"
+      },
+      {
+        "name": "amountDApples100ths",
+        "type": "uint256",
+        "value": "0"
+      },
+      {
+        "name": "pending",
+        "type": "bool",
+        "value": false
+      }
+    ],
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "name": "_sellTransactionIndex",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      },
+      {
+        "name": "_amountWei",
+        "type": "uint256",
+        "typeShort": "uint",
+        "bits": "256",
+        "template": "elements_input_uint"
+      }
+    ],
+    "name": "transferWei",
+    "outputs": [],
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "name": "_DApple",
+        "type": "address",
+        "typeShort": "address",
+        "bits": "",
+        "template": "elements_input_address",
+        "value": "0xbfd497a19fc2f8b4c7cc2e19932b560485471996"
+      }
+    ],
+    "type": "constructor"
+  }
+]
+
+var DAppleMaker = eth.contract(abi).at('0xbe14fb8d0c051b5e4e9387e6b54d1258c83cb459');
+
+DAppleMaker.setLatestQuote('1.00 AAPL = ' + (AAPLinUSD / ETHinUSD).toFixed(2) + ' ETH', {value: 0, gas: 500000});
+
+var buyTransactionCount = DAppleMaker.buyTransactionCount();
+var sellTransactionCount = DAppleMaker.sellTransactionCount();
+
+for (var i=0; i<buyTransactionCount; i++) {
+
+    var buyTransaction = DAppleMaker.buyTransactions(i);
+
+    if (buyTransaction[2]) {
+
+        var amountETH =  buyTransaction[1] / 1000000000000000000;
+        var amountDApples100ths = Math.floor(((amountETH * ETHinUSD) / AAPLinUSD) * 100);
+        if (amountDApples100ths > 0) {
+            DAppleMaker.transferDApples(i, amountDApples100ths, {value: 0, gas: 500000});
+        }
+    }
+}
+
+for (var i=0; i<sellTransactionCount; i++) {
+
+    var sellTransaction = DAppleMaker.sellTransactions(i);
+
+    if (sellTransaction[2]) {
+
+        var amountAAPL =  sellTransaction[1] / 100;
+        var amountWei = Math.floor(((amountAAPL * AAPLinUSD) / ETHinUSD) * 1000000000000000000);
+        if (amountWei > 0) {
+            DAppleMaker.transferWei(i, amountWei, {value: 0, gas: 500000});
+        }
+    }
+}
+
+
+screen
+./startGeth 2>> geth.log
+
+screen
+./startDAppleTrader 2>> dAppleTrader.log
+
+
+! i need to fund the dapplemaker to cover losses... and dapplemakerowner to cover gas!
+? do i have to share all abi? how share instructions??
+? how much eth/gas it costing to to trade?? DROPPING LIKE A STONE!!!
